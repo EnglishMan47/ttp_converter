@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+.git
+.gitignore
+venv
+.venv
+*.zip
+# локальная установка нейросетевого движка (Windows): бинарники llama.cpp
+# и веса моделей — гигабайты, в образ попадать не должны
+neural
+.claude

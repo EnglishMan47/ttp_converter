@@ -1,0 +1,28 @@
+services:
+  tiff2pdf:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - models-cache:/root/.cache   # веса моделей (EasyOCR, Chandra GGUF)
+      - neural:/neural              # runtime нейросетевого движка (llama.cpp)
+    # Принудительная установка нейросетевого движка БЕЗ видеокарты
+    # (CPU-режим, медленно — минуты на страницу). Раскомментируйте:
+    # environment:
+    #   - NEURAL_FORCE=1
+    # На сервере с видеокартой NVIDIA раскомментируйте блок ниже
+    # (нужны драйверы NVIDIA и nvidia-container-toolkit на хосте).
+    # Без видеокарты оставьте закомментированным — будет доступен
+    # лёгкий движок.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  models-cache:
+  neural:

@@ -1,0 +1,19 @@
+# Распознавание текста
+easyocr
+huggingface_hub
+
+# Работа с PDF
+pymupdf
+pikepdf
+
+# Обработка изображений
+pillow
+opencv-python-headless
+numpy
+
+# Веб-интерфейс
+streamlit
+
+# Служебные
+psutil
+pytesseract
