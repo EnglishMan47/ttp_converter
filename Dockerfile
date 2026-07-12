@@ -1,11 +1,10 @@
 # Образ веб-версии системы пакетной обработки сканов.
 #
-# Образ собирается ЛЁГКИМ: в него входит только лёгкий движок (EasyOCR
-# на CPU-сборке Torch), веб-интерфейс и обвязка. Компоненты
-# нейросетевого движка (llama.cpp с CUDA, Torch cu132) НЕ ставятся при
-# сборке: при каждом старте контейнер проверяет наличие видеокарты
-# NVIDIA (наличие CUDA, не объём памяти) и только при её обнаружении
-# один раз доустанавливает их в постоянный том /neural
+# Образ собирается лёгким: код, веб-интерфейс и CPU-сборка Torch.
+# Всё тяжёлое (runtime нейросетевого движка llama.cpp, веса Chandra
+# ~4.7 ГБ, модели EasyOCR ~94 МБ) устанавливается ОДИН РАЗ при первом
+# старте контейнера в постоянные тома neural и models-cache — при
+# пересоздании контейнера ничего не скачивается заново
 # (см. scripts/entrypoint.sh и scripts/neural_setup.sh).
 #
 # Сборка:  docker compose up -d --build
@@ -41,8 +40,9 @@ COPY app ./app
 COPY scripts ./scripts
 RUN chmod +x /srv/scripts/*.sh
 
-# Веса Chandra и runtime нейросетевого движка живут в томах
-# (models-cache и neural) — образ остаётся лёгким.
+# модели EasyOCR храним в /root/.cache (том models-cache), а не в
+# домашнем каталоге по умолчанию — переживают пересоздание контейнера
+ENV EASYOCR_MODULE_PATH=/root/.cache/easyocr
 
 EXPOSE 8501
 ENTRYPOINT ["/srv/scripts/entrypoint.sh"]
