@@ -38,7 +38,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY scripts ./scripts
-RUN chmod +x /srv/scripts/*.sh
+# нормализуем возможные CRLF (если репозиторий склонирован на Windows):
+# иначе Linux не запустит скрипт с shebang, оканчивающимся на \r
+RUN sed -i 's/\r$//' /srv/scripts/*.sh && chmod +x /srv/scripts/*.sh
 
 # модели EasyOCR храним в /root/.cache (том models-cache), а не в
 # домашнем каталоге по умолчанию — переживают пересоздание контейнера

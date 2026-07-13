@@ -1,0 +1,28 @@
+# Концы строк в репозитории. Без этих правил Git на Windows при клоне
+# подставляет CRLF, и Linux не может запустить скрипты с shebang: контейнер
+# падает с "exec /srv/scripts/entrypoint.sh: no such file or directory".
+
+# Скрипты для Linux и контейнера — всегда LF на любой ОС.
+*.sh               text eol=lf
+Dockerfile         text eol=lf
+docker-compose.yml text eol=lf
+.dockerignore      text eol=lf
+
+# Скрипты для Windows — всегда CRLF.
+*.bat              text eol=crlf
+*.ps1              text eol=crlf
+
+# Остальной текст нормализуем к LF.
+*.py               text eol=lf
+*.md               text eol=lf
+*.toml             text eol=lf
+*.txt              text eol=lf
+
+# Бинарные файлы (пример обработки, ресурсы) — не трогать.
+*.tif  binary
+*.tiff binary
+*.pdf  binary
+*.png  binary
+*.ttf  binary
+*.icc  binary
+*.gguf binary

@@ -58,7 +58,8 @@ def find_llama_bin() -> str | None:
     Путь к llama-mtmd-cli или None.
 
     Порядок поиска: переменная LLAMA_MTMD_BIN (имя в PATH или полный
-    путь) → PATH → локальная установка в neural/ проекта.
+    путь) → PATH → локальная установка в neural/ проекта → том
+    /neural Docker-контейнера.
     """
     env_bin = os.environ.get("LLAMA_MTMD_BIN")
     if env_bin:
@@ -73,7 +74,8 @@ def find_llama_bin() -> str | None:
         return found
     exe = "llama-mtmd-cli.exe" if os.name == "nt" else "llama-mtmd-cli"
     for cand in (_PROJECT_NEURAL / "llama.cpp" / exe,
-                 _PROJECT_NEURAL / "bin" / exe):
+                 _PROJECT_NEURAL / "bin" / exe,
+                 Path("/neural/bin") / exe):
         if cand.is_file():
             return str(cand)
     return None
