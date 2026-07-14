@@ -190,7 +190,7 @@ def sidebar() -> None:
 
 # ── загрузка книги ───────────────────────────────────────────────────
 
-def save_upload(files, zip_file) -> tuple[str, Path] | None:
+def save_upload(files, zip_file, name: str = "") -> tuple[str, Path] | None:
     """Сохраняет загруженные файлы книги; возвращает (имя, папка)."""
     ws = get_workspace()
     ws["uploads"].mkdir(parents=True, exist_ok=True)
@@ -212,7 +212,7 @@ def save_upload(files, zip_file) -> tuple[str, Path] | None:
         return name, folder
 
     if files:
-        name = st.session_state.get("book_name") or "Книга"
+        name = (name or "").strip() or "Книга"
         folder = Path(tempfile.mkdtemp(prefix=f"{name}_",
                                        dir=ws["uploads"]))
         for f in files:
@@ -223,25 +223,32 @@ def save_upload(files, zip_file) -> tuple[str, Path] | None:
 
 def upload_section(mgr: QueueManager) -> None:
     st.subheader("Добавить книгу")
+    # После добавления книги увеличиваем счётчик — виджеты получают новые
+    # ключи и создаются пустыми (поле названия и список TIFF очищаются),
+    # чтобы для следующей книги не удалять файлы и имя вручную.
+    gen = st.session_state.get("upload_gen", 0)
     tab_zip, tab_files = st.tabs(["ZIP-архив со сканами",
                                   "Отдельные TIFF-файлы"])
     with tab_zip:
         zip_file = st.file_uploader(
             "ZIP с TIFF-страницами одной книги (имя архива станет "
-            "названием книги)", type=["zip"], key="zip_up")
-        if zip_file and st.button("Добавить из ZIP"):
+            "названием книги)", type=["zip"], key=f"zip_up_{gen}")
+        if zip_file and st.button("Добавить из ZIP", key=f"add_zip_{gen}"):
             res = save_upload(None, zip_file)
             if res:
                 mgr.add_book(res[0], str(res[1]))
+                st.session_state.upload_gen = gen + 1
                 st.rerun()
     with tab_files:
-        st.text_input("Название книги", key="book_name")
+        name = st.text_input("Название книги", key=f"book_name_{gen}")
         files = st.file_uploader("TIFF-страницы", type=["tif", "tiff"],
-                                 accept_multiple_files=True, key="tif_up")
-        if files and st.button("Добавить книгу"):
-            res = save_upload(files, None)
+                                 accept_multiple_files=True,
+                                 key=f"tif_up_{gen}")
+        if files and st.button("Добавить книгу", key=f"add_files_{gen}"):
+            res = save_upload(files, None, name=name)
             if res:
                 mgr.add_book(res[0], str(res[1]))
+                st.session_state.upload_gen = gen + 1
                 st.rerun()
 
 
@@ -333,6 +340,13 @@ def book_card(mgr: QueueManager, b) -> None:
 
 @st.fragment(run_every=2.0)
 def books_section(mgr: QueueManager) -> None:
+    books = mgr.ordered_books()
+    if not books:
+        # список пуст — статистика прошлой партии больше не актуальна
+        mgr.reset_batch_stats()
+        st.info("Книги ещё не добавлены. Загрузите сканы выше.")
+        return
+
     # ── общая статистика по времени ──
     stats = mgr.batch_stats()
     if stats["finished_at"] or stats["elapsed_sec"]:
@@ -348,10 +362,6 @@ def books_section(mgr: QueueManager) -> None:
                       if stats["eta_sec"] is not None else "оценивается…")
             c3.metric("Обработка завершена", "ещё идёт")
 
-    books = mgr.ordered_books()
-    if not books:
-        st.info("Книги ещё не добавлены. Загрузите сканы выше.")
-        return
     for b in books:
         book_card(mgr, b)
 

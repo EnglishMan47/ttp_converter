@@ -120,6 +120,10 @@ def process_book(pdf_path: Path,
             if page_data and page_data.get("error"):
                 page_errors.append({"page": page_num,
                                     "error": f"OCR: {page_data['error']}"})
+            # даже пропущенная страница должна двигать прогресс, иначе при
+            # сбое распознавания на всех страницах этап 3 навсегда 0%
+            if on_progress:
+                on_progress(int(page_num / total_pages * 100))
             continue
 
         try:

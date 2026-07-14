@@ -260,6 +260,13 @@ class QueueManager:
             self.batch_finished_at = ""
             self._batch_done_durations = []
 
+    def reset_batch_stats(self) -> None:
+        """Сброс статистики партии (когда список книг опустел)."""
+        if not self.is_busy():
+            self.batch_started_ts = 0.0
+            self.batch_finished_at = ""
+            self._batch_done_durations = []
+
     def _mark_batch_finish(self) -> None:
         if self.batch_started_ts and not self.batch_finished_at:
             self.batch_finished_at = time.strftime("%H:%M:%S %d.%m.%Y")
@@ -391,12 +398,15 @@ class QueueManager:
             report["stages"]["stage2"] = s2
             pages_data = load_pages(ocr_jsonl)
 
+            b.note_progress(2, 100)   # этап завершён — гарантируем 100%
+
             # этап 3
             b.enter_stage(3)
             from stage_3.pipeline3 import process_book
             s3 = process_book(stage1_pdf, pages_data, final_pdf, settings,
                               on_progress=prog(3), is_cancelled=cancelled)
             report["stages"]["stage3"] = s3
+            b.note_progress(3, 100)
 
             report["status"] = "done"
             b.elapsed_prev += time.time() - b.run_started_ts
@@ -405,9 +415,23 @@ class QueueManager:
             report["elapsed_sec"] = round(b.elapsed_prev, 1)
             self._batch_done_durations.append(b.elapsed_prev)
             b.status = DONE
-            b.message = f"Файл сохранён по пути: {final_pdf}"
             b.output_pdf = str(final_pdf)
             b.review_pdf = s3.get("review_pdf", "")
+            # если распознавание не удалось на страницах — это надо показать,
+            # а не выдавать за чистый успех: текстовый слой будет неполным
+            n_err = len(s2.get("page_errors", []))
+            n_pages = s2.get("pages", 0)
+            if n_pages and n_err >= n_pages:
+                b.message = ("Внимание: распознать текст не удалось ни на одной "
+                             "странице — в PDF нет текстового слоя. Проверьте, "
+                             "что модели распознавания загружены полностью, и "
+                             "запустите книгу заново.")
+            elif n_err:
+                b.message = (f"Готово, но распознавание не удалось на {n_err} из "
+                             f"{n_pages} страниц — текстовый слой неполный. "
+                             f"Файл: {final_pdf}")
+            else:
+                b.message = f"Файл сохранён по пути: {final_pdf}"
         except ProcessingCancelled:
             report["status"] = "stopped"
             b.elapsed_prev += time.time() - b.run_started_ts
