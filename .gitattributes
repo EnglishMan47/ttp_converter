@@ -26,8 +26,4 @@ docker-compose.yml text eol=lf
 *.ttf  binary
 *.icc  binary
 *.gguf binary
-*.pth  binary
-*.so   binary
-*.so.* binary
-# встроенный бинарник llama.cpp (без расширения)
-app/resources/llama/bin/llama-mtmd-cli binary
+

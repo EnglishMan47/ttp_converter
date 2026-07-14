@@ -33,43 +33,19 @@ gpu_present() {
     command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1
 }
 
-# встроенный в проект CPU-бинарник llama.cpp (Linux x86_64) — работает без
-# обращения к GitHub, чей CDN в ряде сетей блокируется
-VENDORED_LLAMA="/srv/app/resources/llama"
-
-use_vendored_llama() {
-    [ -x "$VENDORED_LLAMA/bin/llama-mtmd-cli" ] || return 1
-    echo "[запуск] Использую встроенный в проект runtime llama.cpp (CPU)."
-    mkdir -p "$NEURAL_DIR/bin" "$NEURAL_DIR/lib"
-    cp "$VENDORED_LLAMA/bin/"* "$NEURAL_DIR/bin/" 2>/dev/null || true
-    cp "$VENDORED_LLAMA/lib/"* "$NEURAL_DIR/lib/" 2>/dev/null || true
-    chmod +x "$NEURAL_DIR/bin/llama-mtmd-cli"
-    return 0
-}
-
 install_neural() {   # $1 = cuda | cpu
     if [ -x "$NEURAL_DIR/bin/llama-mtmd-cli" ]; then
         echo "[запуск] Runtime нейросетевого движка найден в томе."
         return 0
     fi
-    # CPU-режим: сразу берём встроенный бинарник, без скачивания
-    if [ "$1" = "cpu" ] && use_vendored_llama; then
-        return 0
-    fi
     set_status "Устанавливается нейросетевой движок ($1)…"
     if bash /srv/scripts/neural_setup.sh "$NEURAL_DIR" "$1"; then
         echo "[запуск] Runtime установлен в том neural."
-        return 0
+    else
+        echo "[запуск] ВНИМАНИЕ: runtime нейросетевого движка не установился"
+        echo "[запуск] (лёгкий движок работает). Повтор — при следующем старте."
+        return 1
     fi
-    # сборка/скачивание не удались (напр. GitHub недоступен) — откат на
-    # встроенный CPU-бинарник, чтобы движок всё равно заработал
-    echo "[запуск] Установка не удалась — пробую встроенный CPU-runtime."
-    if use_vendored_llama; then
-        return 0
-    fi
-    echo "[запуск] ВНИМАНИЕ: runtime нейросетевого движка не установился"
-    echo "[запуск] (лёгкий движок работает). Повтор — при следующем старте."
-    return 1
 }
 
 download_weight() {   # $1 = имя файла в репозитории HF
