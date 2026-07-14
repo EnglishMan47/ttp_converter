@@ -40,6 +40,13 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from logging_setup import get_logger
+    log = get_logger("queue")
+except Exception:            # логирование не должно ломать импорт очереди
+    import logging
+    log = logging.getLogger("tiff2pdf.queue")
+
 ADDED = "added"
 QUEUED = "queued"
 PROCESSING = "processing"
@@ -363,11 +370,13 @@ class QueueManager:
                 b.note_progress(stage, pct)
             return cb
 
+        log.info("Книга %r: старт обработки, папка %s", b.name, b.folder)
         try:
             from stage_2.engines import resolve_engine
             engine, why = resolve_engine(settings.get("ocr_engine", "auto"))
             report["engine"] = engine
             b.message = f"Движок: {engine}"
+            log.info("Книга %r: движок '%s' (%s)", b.name, engine, why)
 
             # этап 1 (чекпоинт: засчитывается только целый PDF)
             b.enter_stage(1)
@@ -423,6 +432,9 @@ class QueueManager:
             b.status = DONE
             b.output_pdf = str(final_pdf)
             b.review_pdf = s3.get("review_pdf", "")
+            log.info("Книга %r: готово за %.0f с (страниц %s, ошибок "
+                     "распознавания %s)", b.name, b.elapsed_prev,
+                     s2.get("pages", 0), len(s2.get("page_errors", [])))
             # если распознавание не удалось на страницах — это надо показать,
             # а не выдавать за чистый успех: текстовый слой будет неполным
             n_err = len(s2.get("page_errors", []))
@@ -445,6 +457,7 @@ class QueueManager:
             b.status = STOPPED
             b.message = ("Остановлено. При повторном запуске обработка "
                          "продолжится с места остановки.")
+            log.info("Книга %r: остановлена пользователем", b.name)
         except Exception as e:
             report["error"] = f"{e}\n{traceback.format_exc()}"
             b.elapsed_prev += time.time() - b.run_started_ts
@@ -452,6 +465,8 @@ class QueueManager:
             b.finished_at = time.strftime("%H:%M:%S %d.%m.%Y")
             b.status = ERROR
             b.message = f"Ошибка: {type(e).__name__}: {e}"
+            log.error("Книга %r: ошибка обработки: %s", b.name, e,
+                      exc_info=True)
 
         try:
             write_book_report(work, report)

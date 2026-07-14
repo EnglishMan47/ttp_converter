@@ -34,6 +34,13 @@ from pathlib import Path
 
 from .jsonl_store import done_pages, load_pages  # noqa: F401
 
+try:
+    from logging_setup import get_logger
+    log = get_logger("chandra")
+except Exception:            # логирование не должно ломать импорт движка
+    import logging
+    log = logging.getLogger("tiff2pdf.chandra")
+
 HF_REPO = "prithivMLmods/chandra-ocr-2-GGUF"
 MODEL_FILE = "chandra-ocr-2.Q4_K_M.gguf"
 MMPROJ_FILE = "chandra-ocr-2.mmproj-bf16.gguf"
@@ -236,12 +243,25 @@ def _run_page(bin_path: str, model: Path, mmproj: Path,
     cmd = [bin_path, "-m", str(model), "--mmproj", str(mmproj),
            "--image", str(image_path), "-p", OCR_LAYOUT_PROMPT,
            "--temp", "0", "-n", "4096"]
+    # Подстраховка к раскладке runtime: модульные бэкенды ggml
+    # (libggml-cpu-*.so) ищутся РЯДОМ С БИНАРНИКОМ и в текущем каталоге —
+    # поэтому запускаем из папки бинарника и добавляем её в
+    # LD_LIBRARY_PATH. GGML_BACKEND_PATH не трогаем: он ждёт путь к
+    # конкретному .so, а не к папке (иначе «Is a directory»).
+    bin_dir = os.path.dirname(os.path.abspath(bin_path))
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = bin_dir + os.pathsep + env.get("LD_LIBRARY_PATH", "")
+    log.debug("llama-mtmd-cli %s (cwd=%s)", " ".join(cmd[1:]), bin_dir)
     # encoding обязателен: на Windows text=True по умолчанию берёт
     # локальную кодировку (cp1251) и портит русский вывод модели
     proc = subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=600)
+                          encoding="utf-8", errors="replace", timeout=600,
+                          cwd=bin_dir, env=env)
     if proc.returncode != 0:
         err = proc.stderr.strip()
+        # полный stderr — в лог; в сообщение пользователю попадает лишь хвост
+        log.error("llama-mtmd-cli завершился с кодом %s. Полный stderr:\n%s",
+                  proc.returncode, err)
         low = err.lower()
         # признаки реально битого/неполного файла модели
         if any(s in low for s in ("invalid magic", "unexpected eof",

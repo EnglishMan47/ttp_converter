@@ -143,8 +143,10 @@ PY
 
 # Пути к движку экспортируем СРАЗУ (том neural), чтобы веб-сервер увидел
 # бинарник и библиотеки, как только фоновая установка их положит.
+# Бинарник и все .so (включая бэкенды ggml) лежат в $NEURAL_DIR/bin —
+# туда же указываем LD_LIBRARY_PATH.
 export PATH="$NEURAL_DIR/bin:$PATH"
-export LD_LIBRARY_PATH="$NEURAL_DIR/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$NEURAL_DIR/bin:${LD_LIBRARY_PATH:-}"
 export LLAMA_MTMD_BIN="$NEURAL_DIR/bin/llama-mtmd-cli"
 
 rm -f "$PREP_DONE"

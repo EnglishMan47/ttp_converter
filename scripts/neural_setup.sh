@@ -14,14 +14,19 @@
 set -euo pipefail
 DEST="$1"
 MODE="${2:-cuda}"
-mkdir -p "$DEST/bin" "$DEST/lib"
+mkdir -p "$DEST/bin"
 
 install_from_dir() {   # $1 = каталог с распакованной сборкой
     local found
     found=$(find "$1" -name llama-mtmd-cli -type f | head -1)
     [ -n "$found" ] || return 1
+    # Бинарник и ВСЕ .so кладём в ОДНУ папку ($DEST/bin). Готовые сборки
+    # llama.cpp модульные: CPU-бэкенд лежит в отдельных libggml-cpu-*.so,
+    # а ggml_backend_load_all() ищет их РЯДОМ С БИНАРНИКОМ (и в текущем
+    # каталоге), НЕ по LD_LIBRARY_PATH. Раздельные bin/ и lib/ приводят к
+    # «failed to load a backend / failed to load model».
     cp "$found" "$DEST/bin/"
-    find "$1" -name "*.so*" -exec cp {} "$DEST/lib/" \; 2>/dev/null || true
+    find "$1" -name "*.so*" -exec cp {} "$DEST/bin/" \; 2>/dev/null || true
     chmod +x "$DEST/bin/llama-mtmd-cli"
 }
 

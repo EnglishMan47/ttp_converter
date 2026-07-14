@@ -25,8 +25,11 @@ sys.path.insert(0, str(APP_DIR))
 
 import streamlit as st
 
+from logging_setup import setup_logging
 from queue_manager import (ADDED, DONE, ERROR, PROCESSING, QUEUED, STOPPED,
                            QueueManager)
+
+setup_logging()   # логи в logs/app.log и logs/errors.log (+ stdout)
 
 st.set_page_config(page_title="Цифровая библиотека", page_icon="📚",
                    layout="wide")
