@@ -75,7 +75,9 @@ def make_pdfa(doc, meta: dict) -> None:
     doc.update_stream(icc_xref, icc_data)
 
     intent_xref = doc.get_new_xref()
-    doc.update_object(intent_xref, f"""
+    # ВАЖНО: объект-словарь обязан начинаться с «<<», иначе он битый и
+    # PDF/A-читалки не видят OutputIntent (а с ним — цветовой профиль)
+    doc.update_object(intent_xref, f"""<<
 /Type /OutputIntent
 /S /GTS_PDFA1
 /OutputConditionIdentifier (sRGB IEC61966-2.1)
@@ -83,12 +85,10 @@ def make_pdfa(doc, meta: dict) -> None:
 /DestOutputProfile {icc_xref} 0 R
 >>""")
 
+    # ключ каталога ставим штатным API: строковый replace(">>", …) заменял
+    # ВСЕ «>>» и по ошибке дублировал OutputIntents внутрь /Info
     catalog_xref = doc.pdf_catalog()
-    catalog = doc.xref_object(catalog_xref)
-    if "/OutputIntents" not in catalog:
-        doc.update_object(
-            catalog_xref,
-            catalog.replace(">>", f"/OutputIntents [{intent_xref} 0 R]\n>>"))
+    doc.xref_set_key(catalog_xref, "OutputIntents", f"[{intent_xref} 0 R]")
 
 
 def add_blank_page(doc, position: str = "start") -> None:
