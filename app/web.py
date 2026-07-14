@@ -109,14 +109,19 @@ def get_workspace() -> dict:
     return {"uploads": root / "uploads", "output": root / "output"}
 
 
+@st.cache_resource
+def _global_manager() -> QueueManager:
+    # один менеджер на весь сервер (а не на сессию браузера): карточки
+    # и прогресс переживают обновление страницы и видны из любого окна
+    ws = get_workspace()
+    return QueueManager(ws["output"], default_settings())
+
+
 def get_manager() -> QueueManager:
-    if "manager" not in st.session_state:
-        ws = get_workspace()
-        st.session_state.manager = QueueManager(ws["output"],
-                                                st.session_state.settings)
+    mgr = _global_manager()
     # общие настройки могли поменяться в сайдбаре
-    st.session_state.manager.settings.update(st.session_state.settings)
-    return st.session_state.manager
+    mgr.settings.update(st.session_state.settings)
+    return mgr
 
 
 def default_settings() -> dict:
@@ -382,7 +387,7 @@ def preparation_gate() -> None:
 
     st.title("Цифровая библиотека")
     st.info("Идёт первоначальная подготовка сервера. Скачиваются модели "
-            "распознавания (~4.7 ГБ) — это может занять несколько минут. "
+            "распознавания (~3.7 ГБ) — это может занять несколько минут. "
             "Страница обновится автоматически.")
     step = ""
     try:

@@ -64,6 +64,26 @@ python -m venv venv
 call venv\Scripts\activate.bat
 echo === Installing packages ===
 python -m pip install --upgrade pip
+
+rem On Windows PyPI ships the CPU-only build of torch. With an NVIDIA GPU
+rem install the CUDA build first, so easyocr does not pull the CPU one.
+set TORCH_CUDA=
+nvidia-smi >nul 2>&1
+if not errorlevel 1 set TORCH_CUDA=1
+if defined TORCH_CUDA (
+    rem Skip if the CUDA build is already installed; pip will not replace
+    rem an installed +cpu build by itself, so uninstall it first.
+    python -c "import torch, sys; sys.exit(0 if torch.version.cuda else 1)" >nul 2>&1
+    if errorlevel 1 (
+        echo INFO: NVIDIA GPU detected - installing the CUDA build of torch ^(~3 GB download^).
+        pip uninstall -y torch torchvision >nul 2>&1
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+    ) else (
+        echo INFO: the CUDA build of torch is already installed.
+    )
+) else (
+    echo INFO: no NVIDIA GPU detected - installing the CPU build of torch.
+)
 pip install -r requirements.txt
 echo.
 echo === Done ===

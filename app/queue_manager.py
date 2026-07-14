@@ -387,9 +387,15 @@ class QueueManager:
             if engine == "chandra":
                 from stage_2.jsonl_store import load_pages
                 from stage_2.ocr_chandra import run_ocr
+
+                def status(msg):
+                    # статус загрузки весов; "" — загрузка окончена
+                    b.message = msg or f"Движок: {engine}"
+
                 s2 = run_ocr(stage1_pdf, ocr_jsonl, dpi=b.dpi,
                              batch_size=b.batch_size,
-                             on_progress=prog(2), is_cancelled=cancelled)
+                             on_progress=prog(2), on_status=status,
+                             is_cancelled=cancelled)
             else:
                 from stage_2.jsonl_store import load_pages
                 from stage_2.ocr_easy import run_ocr

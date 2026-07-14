@@ -8,7 +8,7 @@
 # пропускаются:
 #   1) runtime нейросетевого движка (llama-mtmd-cli): с видеокартой
 #      NVIDIA — CUDA-вариант, без неё — готовая CPU-сборка (том neural);
-#   2) веса модели Chandra, ~4.7 ГБ (том models-cache);
+#   2) веса модели Chandra, ~3.7 ГБ (том models-cache);
 #   3) модели лёгкого движка EasyOCR, ~94 МБ (том models-cache).
 #
 # Источники весов Chandra задаёт MODELS_ENDPOINTS (по умолчанию сначала

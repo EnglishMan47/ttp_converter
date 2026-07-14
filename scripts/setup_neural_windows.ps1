@@ -4,7 +4,7 @@
 
 Скачивает официальную CPU-сборку llama.cpp (репозиторий
 ggml-org/llama.cpp, GitHub Releases) в папку neural\llama.cpp проекта —
-приложение находит её автоматически. Веса модели Chandra (~4.7 ГБ)
+приложение находит её автоматически. Веса модели Chandra (~3.7 ГБ)
 скачиваются либо сразу (ключ -DownloadModels), либо лениво при первом
 использовании движка; они сохраняются в neural\models.
 
@@ -48,19 +48,54 @@ if ($freeGb -lt $needGb) {
 Write-Host "Свободно на диске назначения: $freeGb ГБ."
 if (-not $DownloadModels -and $freeGb -lt 6) {
     Write-Host ("ВНИМАНИЕ: весам модели при первом использовании движка " +
-                "понадобится ещё ~5 ГБ на этом же диске.")
+                "понадобится ещё ~4 ГБ на этом же диске.")
 }
 
 Write-Host "Ищу последний выпуск llama.cpp..."
 $rel = Invoke-RestMethod "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest"
-$asset = $rel.assets | Where-Object { $_.name -match "bin-win-cpu-x64\.zip$" } |
-    Select-Object -First 1
+
+# С видеокартой NVIDIA берём CUDA-сборку — самую свежую из тех, что
+# поддерживает установленный драйвер (версию CUDA сообщает nvidia-smi);
+# к ней нужен архив cudart-*. Без видеокарты — CPU-сборка.
+$asset = $null
+$cudartAsset = $null
+$smi = ""
+try { $smi = (& nvidia-smi 2>$null) -join "`n" } catch {}
+if ($smi -match "CUDA\s+(?:UMD\s+)?Version:\s*(\d+)\.(\d+)") {
+    $driverCuda = [int]$Matches[1] * 100 + [int]$Matches[2]
+    $best = $rel.assets |
+        Where-Object { $_.name -match "bin-win-cuda-(?:cu)?(\d+)\.(\d+)[\d.]*-x64\.zip$" } |
+        ForEach-Object {
+            $null = $_.name -match "bin-win-cuda-(?:cu)?(\d+)\.(\d+)"
+            [pscustomobject]@{
+                Asset = $_
+                Ver   = [int]$Matches[1] * 100 + [int]$Matches[2]
+                Tag   = "cuda-(?:cu)?$($Matches[1])\.$($Matches[2])"
+            }
+        } |
+        Where-Object { $_.Ver -le $driverCuda } |
+        Sort-Object Ver -Descending | Select-Object -First 1
+    if ($best) {
+        $asset = $best.Asset
+        $cudartAsset = $rel.assets |
+            Where-Object { $_.name -match "^cudart-.*$($best.Tag).*x64\.zip$" } |
+            Select-Object -First 1
+        Write-Host "Найдена видеокарта NVIDIA — беру CUDA-сборку: $($asset.name)"
+    } else {
+        Write-Host ("ВНИМАНИЕ: видеокарта NVIDIA есть, но драйвер старее " +
+                    "доступных CUDA-сборок — беру CPU-сборку. Обновите драйвер.")
+    }
+}
+if (-not $asset) {
+    $asset = $rel.assets | Where-Object { $_.name -match "bin-win-cpu-x64\.zip$" } |
+        Select-Object -First 1
+}
 if (-not $asset) {   # старое имя CPU-сборки
     $asset = $rel.assets | Where-Object { $_.name -match "bin-win-avx2-x64\.zip$" } |
         Select-Object -First 1
 }
 if (-not $asset) {
-    throw "В выпуске $($rel.tag_name) не нашлось Windows CPU-сборки (*bin-win-cpu-x64.zip)."
+    throw "В выпуске $($rel.tag_name) не нашлось подходящей Windows-сборки."
 }
 
 $mb = [math]::Round($asset.size / 1MB, 1)
@@ -69,6 +104,16 @@ $zip = Join-Path $dest "_llama_download.zip"
 Invoke-WebRequest $asset.browser_download_url -OutFile $zip
 Expand-Archive $zip -DestinationPath $dest -Force
 Remove-Item $zip
+
+if ($cudartAsset) {
+    # DLL рантайма CUDA (cudart, cublas) поставляются отдельным архивом
+    $mb = [math]::Round($cudartAsset.size / 1MB, 1)
+    Write-Host "Скачиваю $($cudartAsset.name) ($mb МБ)..."
+    $zip = Join-Path $dest "_cudart_download.zip"
+    Invoke-WebRequest $cudartAsset.browser_download_url -OutFile $zip
+    Expand-Archive $zip -DestinationPath $dest -Force
+    Remove-Item $zip
+}
 
 $exe = Get-ChildItem $dest -Recurse -Filter "llama-mtmd-cli.exe" | Select-Object -First 1
 if (-not $exe) { throw "В архиве не оказалось llama-mtmd-cli.exe" }
@@ -95,7 +140,7 @@ if ($DownloadModels) {
     if (-not (Test-Path $py)) {
         throw "Не найден venv\Scripts\python.exe — сначала выполните setup.bat"
     }
-    Write-Host "Скачиваю веса Chandra Q6_K (~4.7 ГБ), это займёт время..."
+    Write-Host "Скачиваю веса Chandra Q4_K_M (~3.7 ГБ), это займёт время..."
     & $py -X utf8 -c "import sys, pathlib; sys.path.insert(0, str(pathlib.Path(r'$proj') / 'app')); from stage_2.ocr_chandra import ensure_models; print(ensure_models())"
     if ($LASTEXITCODE -ne 0) { throw "Не удалось скачать веса модели" }
 }
