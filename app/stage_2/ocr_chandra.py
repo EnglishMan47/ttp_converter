@@ -1,9 +1,9 @@
 """
 ocr_chandra.py — нейросетевой движок: квантованная модель Chandra (GGUF).
 
-Используется квантованная версия Q6_K (~4 ГБ) вместо полной BF16
-(~10 ГБ): по измерениям качество Q6_K неотличимо от полной модели, а
-требования к видеопамяти снижаются более чем вдвое. Инференс выполняет
+Используется квантованная версия Q4_K_M (~3 ГБ) вместо полной BF16
+(~10 ГБ): качество при этом почти не страдает, а требования к
+видеопамяти снижаются втрое. Инференс выполняет
 утилита llama-mtmd-cli из llama.cpp (собирается в Docker-образе);
 других вариантов нейросетевого движка в системе нет.
 
@@ -13,7 +13,7 @@ ocr_chandra.py — нейросетевой движок: квантованна
 
 Источник весов (Hugging Face):
     prithivMLmods/chandra-ocr-2-GGUF
-        chandra-ocr-2.Q6_K.gguf          — веса модели
+        chandra-ocr-2.Q4_K_M.gguf        — веса модели
         chandra-ocr-2.mmproj-bf16.gguf   — визуальный проектор
 
 Результат пишется построчно в JSONL (одна строка = одна страница) с
@@ -29,12 +29,13 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 from .jsonl_store import done_pages, load_pages  # noqa: F401
 
 HF_REPO = "prithivMLmods/chandra-ocr-2-GGUF"
-MODEL_FILE = "chandra-ocr-2.Q6_K.gguf"
+MODEL_FILE = "chandra-ocr-2.Q4_K_M.gguf"
 MMPROJ_FILE = "chandra-ocr-2.mmproj-bf16.gguf"
 
 # локальная установка движка внутри проекта: папка neural/ (на Windows её
@@ -43,10 +44,15 @@ MMPROJ_FILE = "chandra-ocr-2.mmproj-bf16.gguf"
 _PROJECT_NEURAL = Path(__file__).resolve().parents[2] / "neural"
 
 
+# путь без папки neural/ (а также «наследие»: веса, скачанные до того,
+# как папка neural появилась, лежат здесь)
+_HOME_MODELS_DIR = Path.home() / ".cache" / "tiff2pdf" / "models"
+
+
 def _default_models_dir() -> Path:
     if _PROJECT_NEURAL.is_dir():
         return _PROJECT_NEURAL / "models"
-    return Path.home() / ".cache" / "tiff2pdf" / "models"
+    return _HOME_MODELS_DIR
 
 
 MODELS_DIR = Path(os.environ.get("CHANDRA_MODELS_DIR")
@@ -113,14 +119,44 @@ def _check_runtime() -> str:
     return path
 
 
+# примерные размеры весов (для статуса загрузки); точность не критична
+_APPROX_BYTES = {MODEL_FILE: 3_066_000_000, MMPROJ_FILE: 676_000_000}
+
+
+def _dir_bytes(root: Path) -> int:
+    total = 0
+    for p in root.rglob("*"):
+        try:
+            if p.is_file():
+                total += p.stat().st_size
+        except OSError:
+            continue                 # временный файл успел исчезнуть
+    return total
+
+
 def ensure_models(on_progress=None) -> tuple[Path, Path]:
     """
-    Ленивая загрузка весов: скачивает Q6_K и mmproj при первом
+    Ленивая загрузка весов: скачивает Q4_K_M и mmproj при первом
     использовании. Повторные вызовы берут файлы из кэша.
+
+    on_progress — колбэк со строкой статуса ("" — загрузка окончена).
     """
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_p = MODELS_DIR / MODEL_FILE
     mmproj_p = MODELS_DIR / MMPROJ_FILE
+
+    # веса могли скачаться в домашний кэш, пока папки neural ещё не было
+    # (MODELS_DIR выбирается при импорте) — забираем их переносом, чтобы
+    # не качать несколько гигабайт повторно
+    if MODELS_DIR != _HOME_MODELS_DIR:
+        for fname in (MODEL_FILE, MMPROJ_FILE):
+            src, dst = _HOME_MODELS_DIR / fname, MODELS_DIR / fname
+            if src.is_file() and not dst.exists():
+                try:
+                    shutil.move(str(src), str(dst))
+                except OSError:
+                    pass             # файл занят — скачается заново
+
     missing = [f for f, p in ((MODEL_FILE, model_p), (MMPROJ_FILE, mmproj_p))
                if not p.exists()]
     if missing:
@@ -134,11 +170,30 @@ def ensure_models(on_progress=None) -> tuple[Path, Path]:
             raise ChandraUnavailable(
                 "Пакет huggingface_hub не установлен — нечем скачать веса "
                 "модели.") from e
-        for fname in missing:
+
+        # фоновый опрос размера папки — статус «сколько скачано» для
+        # карточки книги; иначе первый запуск выглядит зависшим
+        stop = threading.Event()
+        if on_progress:
+            base = _dir_bytes(MODELS_DIR)
+            need = sum(_APPROX_BYTES[f] for f in missing)
+
+            def _watch():
+                while not stop.wait(3.0):
+                    got = max(0, min(_dir_bytes(MODELS_DIR) - base, need))
+                    on_progress(
+                        f"Скачиваются веса модели (первый запуск): "
+                        f"{got // 2**20} МБ из ~{need // 2**20} МБ")
+
+            threading.Thread(target=_watch, daemon=True).start()
+        try:
+            for fname in missing:
+                hf_hub_download(repo_id=HF_REPO, filename=fname,
+                                local_dir=str(MODELS_DIR))
+        finally:
+            stop.set()
             if on_progress:
-                on_progress(f"Скачивание {fname}…")
-            hf_hub_download(repo_id=HF_REPO, filename=fname,
-                            local_dir=str(MODELS_DIR))
+                on_progress("")
     return model_p, mmproj_p
 
 
@@ -196,6 +251,15 @@ def _run_page(bin_path: str, model: Path, mmproj: Path,
                 "не удалось прочитать файл модели (повреждён или скачан не "
                 "полностью). Перезапустите контейнер, чтобы перекачать "
                 "модель. Подробности: " + err[-200:])
+        # вычислительный бэкенд ggml не загрузился: установка llama.cpp
+        # неполная (нет DLL бэкендов рядом с утилитой) — память ни при чём
+        if "ggml_backend_load" in low or "no backends loaded" in low:
+            raise ChandraUnavailable(
+                "runtime нейросетевого движка не смог загрузить "
+                "вычислительный бэкенд ggml — установка llama.cpp неполная "
+                "или повреждена. На Windows переустановите её скриптом "
+                "scripts\\setup_neural_windows.ps1, в Docker пересоздайте "
+                "том neural. Подробности: " + err[-200:])
         # целостность модели проверена до цикла, поэтому почти любой другой
         # сбой запуска на CPU — это нехватка оперативной памяти
         raise OutOfMemory(
@@ -210,11 +274,13 @@ def run_ocr(pdf_path: Path,
             dpi: int = 150,
             batch_size: int = 1,
             on_progress=None,
+            on_status=None,
             is_cancelled=None) -> dict:
     """
     Returns:
         {"pages": int, "resumed_from": int, "page_errors": [...]}
 
+    on_status — колбэк со строкой статуса (загрузка весов и т.п.).
     Параметр batch_size сохранён для совместимости настроек; текущий
     runtime обрабатывает страницы по одной.
     """
@@ -224,12 +290,11 @@ def run_ocr(pdf_path: Path,
     from stage_1.pipeline import ProcessingCancelled
 
     bin_path = _check_runtime()
-    model_p, mmproj_p = ensure_models(
-        on_progress=(lambda msg: on_progress(-1)) if on_progress else None)
+    model_p, mmproj_p = ensure_models(on_progress=on_status)
 
-    # защита от неполной загрузки: Q6_K ~3.99 ГБ, проектор ~0.68 ГБ;
+    # защита от неполной загрузки: Q4_K_M ~3.07 ГБ, проектор ~0.68 ГБ;
     # заметно меньший файл — обрыв закачки, иначе llama падает загадочно
-    for p, min_bytes in ((model_p, 3_500_000_000), (mmproj_p, 500_000_000)):
+    for p, min_bytes in ((model_p, 2_700_000_000), (mmproj_p, 500_000_000)):
         if p.stat().st_size < min_bytes:
             raise ChandraUnavailable(
                 f"файл модели {p.name} скачан не полностью "
@@ -268,8 +333,8 @@ def run_ocr(pdf_path: Path,
                               "height_px": h_px, "engine": "chandra",
                               "markdown": _markdown_from_blocks(blocks),
                               "blocks": blocks, "error": ""}
-                except OutOfMemory as e:
-                    # памяти не хватит и на остальных страницах — нет смысла
+                except (OutOfMemory, ChandraUnavailable) as e:
+                    # с остальными страницами будет то же самое — нет смысла
                     # гонять их по одной; сразу останавливаемся с ясной ошибкой
                     img_path.unlink(missing_ok=True)
                     doc.close()
