@@ -42,9 +42,8 @@ COPY scripts ./scripts
 # иначе Linux не запустит скрипт с shebang, оканчивающимся на \r
 RUN sed -i 's/\r$//' /srv/scripts/*.sh && chmod +x /srv/scripts/*.sh
 
-# модели EasyOCR храним в /root/.cache (том models-cache), а не в
-# домашнем каталоге по умолчанию — переживают пересоздание контейнера
-ENV EASYOCR_MODULE_PATH=/root/.cache/easyocr
+# модели EasyOCR встроены в образ (app/resources/easyocr/model) — движок
+# берёт их оттуда и ничего не скачивает (см. stage_2/ocr_easy.py)
 
 EXPOSE 8501
 ENTRYPOINT ["/srv/scripts/entrypoint.sh"]

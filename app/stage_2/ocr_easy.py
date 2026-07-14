@@ -26,13 +26,22 @@ from stage_2.jsonl_store import done_pages, load_pages  # noqa: F401
 
 _reader = None
 
+# модели EasyOCR лежат прямо в проекте (app/resources/easyocr/model) и
+# приезжают вместе с клоном репозитория — скачивать с github ничего не
+# нужно (его CDN githubusercontent.com в ряде сетей блокируется по SSL)
+_EASYOCR_MODELS = str(Path(__file__).resolve().parents[1]
+                      / "resources" / "easyocr" / "model")
+
 
 def get_reader():
     global _reader
     if _reader is None:
         import easyocr
         from stage_2.engines import gpu_available
-        _reader = easyocr.Reader(["ru", "en"], gpu=gpu_available())
+        _reader = easyocr.Reader(
+            ["ru", "en"], gpu=gpu_available(),
+            model_storage_directory=_EASYOCR_MODELS,
+            download_enabled=False)   # модели встроены, не качать
     return _reader
 
 

@@ -114,12 +114,14 @@ PY
     done
     [ "$weights_ok" = "1" ] && echo "[запуск] Веса Chandra на месте: $MODELS_DIR"
 
-    # ── 3. модели лёгкого движка EasyOCR ──
-    set_status "Проверка моделей лёгкого движка EasyOCR (~94 МБ)…"
-    python3 - <<'PY' || echo "[запуск] ВНИМАНИЕ: модели EasyOCR не скачались."
-import easyocr
-easyocr.Reader(["ru", "en"], gpu=False, verbose=False)
-print("[запуск] Модели EasyOCR на месте.")
+    # ── 3. лёгкий движок EasyOCR (модели встроены в образ, не качаются) ──
+    set_status "Проверка лёгкого движка EasyOCR…"
+    python3 - <<'PY' || echo "[запуск] ВНИМАНИЕ: лёгкий движок не инициализировался."
+import sys
+sys.path.insert(0, "/srv/app")
+from stage_2.ocr_easy import get_reader
+get_reader()
+print("[запуск] Лёгкий движок EasyOCR готов (модели встроены в образ).")
 PY
 
     # ── готово ──
