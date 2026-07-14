@@ -171,6 +171,10 @@ def _markdown_from_blocks(blocks: list[dict]) -> str:
 
 
 
+class OutOfMemory(RuntimeError):
+    """Движку не хватило оперативной памяти."""
+
+
 def _run_page(bin_path: str, model: Path, mmproj: Path,
               image_path: Path) -> str:
     """Один проход модели по изображению страницы."""
@@ -182,9 +186,22 @@ def _run_page(bin_path: str, model: Path, mmproj: Path,
     proc = subprocess.run(cmd, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", timeout=600)
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"llama-mtmd-cli завершился с ошибкой: "
-            f"{proc.stderr.strip()[-400:]}")
+        err = proc.stderr.strip()
+        low = err.lower()
+        # признаки реально битого/неполного файла модели
+        if any(s in low for s in ("invalid magic", "unexpected eof",
+                                  "wrong number of tensors", "not a valid",
+                                  "no such file")):
+            raise RuntimeError(
+                "не удалось прочитать файл модели (повреждён или скачан не "
+                "полностью). Перезапустите контейнер, чтобы перекачать "
+                "модель. Подробности: " + err[-200:])
+        # целостность модели проверена до цикла, поэтому почти любой другой
+        # сбой запуска на CPU — это нехватка оперативной памяти
+        raise OutOfMemory(
+            "нейросетевому движку не хватило оперативной памяти. Увеличьте "
+            "память Docker (Settings → Resources → Memory) до 10–12 ГБ или "
+            "выберите лёгкий движок. Подробности: " + err[-200:])
     return proc.stdout
 
 
@@ -209,6 +226,15 @@ def run_ocr(pdf_path: Path,
     bin_path = _check_runtime()
     model_p, mmproj_p = ensure_models(
         on_progress=(lambda msg: on_progress(-1)) if on_progress else None)
+
+    # защита от неполной загрузки: Q6_K ~3.99 ГБ, проектор ~0.68 ГБ;
+    # заметно меньший файл — обрыв закачки, иначе llama падает загадочно
+    for p, min_bytes in ((model_p, 3_500_000_000), (mmproj_p, 500_000_000)):
+        if p.stat().st_size < min_bytes:
+            raise ChandraUnavailable(
+                f"файл модели {p.name} скачан не полностью "
+                f"({p.stat().st_size // 2**20} МБ). Перезапустите контейнер, "
+                f"чтобы докачать модель, затем повторите обработку.")
 
     pdf_path = Path(pdf_path)
     output_jsonl = Path(output_jsonl)
@@ -242,6 +268,12 @@ def run_ocr(pdf_path: Path,
                               "height_px": h_px, "engine": "chandra",
                               "markdown": _markdown_from_blocks(blocks),
                               "blocks": blocks, "error": ""}
+                except OutOfMemory as e:
+                    # памяти не хватит и на остальных страницах — нет смысла
+                    # гонять их по одной; сразу останавливаемся с ясной ошибкой
+                    img_path.unlink(missing_ok=True)
+                    doc.close()
+                    raise ChandraUnavailable(str(e)) from e
                 except Exception as e:
                     record = {"page": i + 1, "width_px": w_px,
                               "height_px": h_px, "engine": "chandra",
