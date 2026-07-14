@@ -1,11 +1,19 @@
 services:
   tiff2pdf:
     build: .
+    container_name: tiff2pdf   # фиксированное имя: работает `docker logs tiff2pdf`
     ports:
       - "8501:8501"
     volumes:
       - models-cache:/root/.cache   # веса моделей (EasyOCR, Chandra GGUF)
       - neural:/neural              # runtime нейросетевого движка (llama.cpp)
+    # Источник загрузки весов Chandra. По умолчанию контейнер сначала
+    # пробует зеркало hf-mirror.com (доступно в РФ без VPN), затем
+    # официальный huggingface.co. Чтобы задать иной порядок или один
+    # источник — раскомментируйте и отредактируйте строки ниже (уберите
+    # «# » в начале). Например, только официальный сайт:
+    # environment:
+    #   - MODELS_ENDPOINTS=https://huggingface.co
     # Блок ниже включает доступ контейнера к видеокарте NVIDIA:
     # удалите символы «# » в начале следующих семи строк (пошаговая
     # инструкция — в README, раздел «Видеокарта NVIDIA»). Без
