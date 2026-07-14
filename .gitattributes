@@ -26,4 +26,3 @@ docker-compose.yml text eol=lf
 *.ttf  binary
 *.icc  binary
 *.gguf binary
-
