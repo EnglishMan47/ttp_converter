@@ -14,18 +14,9 @@ services:
     # «# » в начале). Например, только официальный сайт:
     # environment:
     #   - MODELS_ENDPOINTS=https://huggingface.co
-    # Блок ниже включает доступ контейнера к видеокарте NVIDIA:
-    # удалите символы «# » в начале следующих семи строк (пошаговая
-    # инструкция — в README, раздел «Видеокарта NVIDIA»). Без
-    # видеокарты ничего менять не нужно: оба движка ставятся
-    # автоматически, нейросетевой — в CPU-варианте.
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    # Видеокарта NVIDIA: этот файл менять НЕ нужно — запускайте вместе с
+    # docker-compose.gpu.yml (см. README, раздел «Видеокарта NVIDIA»):
+    #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
     restart: unless-stopped
 
 volumes:

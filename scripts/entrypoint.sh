@@ -33,7 +33,27 @@ gpu_present() {
     command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1
 }
 
+# Готовая сборка llama.cpp, запечённая в образ на этапе docker build
+# (так делает Dockerfile.cuda: собирает её с CUDA). В обычном образе
+# этой папки нет.
+PREBUILT_LLAMA="/opt/llama"
+
+use_prebuilt_llama() {
+    [ -x "$PREBUILT_LLAMA/llama-mtmd-cli" ] || return 1
+    echo "[запуск] Использую llama.cpp, собранную в образе (с CUDA)."
+    mkdir -p "$NEURAL_DIR/bin"
+    cp "$PREBUILT_LLAMA/"* "$NEURAL_DIR/bin/" 2>/dev/null || true
+    chmod +x "$NEURAL_DIR/bin/llama-mtmd-cli"
+    return 0
+}
+
 install_neural() {   # $1 = cuda | cpu
+    # Сборка из образа главнее содержимого тома: иначе при переходе с
+    # CPU-образа на CUDA-образ в томе осталась бы старая CPU-сборка и
+    # видеокарта простаивала бы.
+    if use_prebuilt_llama; then
+        return 0
+    fi
     if [ -x "$NEURAL_DIR/bin/llama-mtmd-cli" ]; then
         echo "[запуск] Runtime нейросетевого движка найден в томе."
         return 0

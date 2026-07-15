@@ -1,0 +1,23 @@
+# Дополнение для запуска с видеокартой NVIDIA.
+#
+# Использовать вместе с основным файлом — тогда правки в него вносить не
+# нужно, всё включается одной командой:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Требуется: драйвер NVIDIA на хосте и (только на Linux)
+# nvidia-container-toolkit. Подробности — в README, раздел
+# «Видеокарта NVIDIA».
+
+services:
+  tiff2pdf:
+    build:
+      # образ, где llama.cpp уже собрана с CUDA (см. Dockerfile.cuda)
+      dockerfile: Dockerfile.cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

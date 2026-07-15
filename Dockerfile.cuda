@@ -1,0 +1,85 @@
+# Образ с поддержкой видеокарты NVIDIA (CUDA).
+#
+# Отличие от обычного Dockerfile: llama.cpp собирается с CUDA ЗДЕСЬ, на
+# этапе `docker build`, а не при старте контейнера. Поэтому:
+#   - при первом запуске НИЧЕГО не компилируется (контейнер стартует сразу);
+#   - CUDA 12.8 свежая: работают и старые карты (GTX 10xx), и новые
+#     RTX 50xx (Blackwell). Пакет nvidia-cuda-toolkit из репозитория
+#     Ubuntu даёт лишь CUDA 12.0 и на новых картах сборку заваливает.
+#
+# Сборка и запуск (из папки проекта):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Сборка идёт долго (компилируется llama.cpp под несколько архитектур).
+# Чтобы ускорить, укажите архитектуру своей карты, например для RTX 30xx:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml build \
+#       --build-arg CUDA_ARCHS=86
+# Номера: 75 — RTX 20xx, 80/86 — RTX 30xx, 89 — RTX 40xx, 120 — RTX 50xx.
+
+# ── этап 1: сборка llama.cpp с CUDA ──────────────────────────────────
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04 AS llama-builder
+
+ARG CUDA_ARCHS="75;80;86;89;120"
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git cmake build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp \
+    && cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DGGML_CUDA=ON \
+        -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS}" \
+    && cmake --build /tmp/llama.cpp/build --target llama-mtmd-cli -j"$(nproc)"
+
+# Бинарник и ВСЕ .so — в одну папку: модульные бэкенды ggml ищутся рядом
+# с исполняемым файлом, а не по LD_LIBRARY_PATH (раздельные bin/ и lib/
+# дают «failed to load a backend»).
+RUN mkdir -p /out \
+    && cp "$(find /tmp/llama.cpp/build -name llama-mtmd-cli -type f | head -1)" /out/ \
+    && find /tmp/llama.cpp/build -name "*.so*" -exec cp {} /out/ \; \
+    && chmod +x /out/llama-mtmd-cli
+
+# ── этап 2: рабочий образ ────────────────────────────────────────────
+# База с CUDA runtime: в ней есть libcudart/libcublas, без которых
+# собранный бинарник не запустится (драйвер придёт с хоста через
+# nvidia-container-toolkit, а эти библиотеки — из toolkit'а).
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        curl ca-certificates \
+        tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv
+
+RUN python3 -m venv /srv/venv
+ENV PATH="/srv/venv/bin:$PATH"
+
+# Torch ставим CPU-сборкой (лёгкий движок и так быстрый); при наличии
+# видеокарты entrypoint сам доустановит CUDA-вариант в том.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir torch torchvision \
+        --index-url https://download.pytorch.org/whl/cpu
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app ./app
+COPY scripts ./scripts
+# нормализуем возможные CRLF (если репозиторий склонирован на Windows):
+# иначе Linux не запустит скрипт с shebang, оканчивающимся на \r
+RUN sed -i 's/\r$//' /srv/scripts/*.sh && chmod +x /srv/scripts/*.sh
+
+# Готовая CUDA-сборка llama.cpp. Кладём в /opt/llama, а НЕ в /neural:
+# /neural — это том, он бы перекрыл содержимое образа. Entrypoint сам
+# скопирует отсюда в том при старте.
+COPY --from=llama-builder /out/ /opt/llama/
+
+EXPOSE 8501
+ENTRYPOINT ["/srv/scripts/entrypoint.sh"]
