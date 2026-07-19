@@ -120,156 +120,47 @@ docker compose logs -f
 
 ### Видеокарта NVIDIA (необязательно)
 
-С видеокартой NVIDIA (от 6 ГБ видеопамяти) нейросетевой движок работает
-в разы быстрее, чем на процессоре. **По умолчанию видеокарта не
-используется** — её нужно включить явно (шаги ниже), иначе контейнер её
-просто не увидит и будет считать на процессоре.
+С видеокартой NVIDIA (от 6 ГБ видеопамяти) нейросетевой движок
+работает быстро. Чтобы контейнер получил доступ к видеокарте:
 
-Сразу о CUDA, чтобы не путаться — она нужна в двух разных местах:
+1. Установите на сервер драйверы NVIDIA и пакет
+   `nvidia-container-toolkit`.
+2. Откройте файл **`docker-compose.yml`** в корне папки проекта любым
+   текстовым редактором и найдите семь строк:
 
-| Что | Где | Кто ставит |
-|---|---|---|
-| **Драйвер NVIDIA** (даёт `nvidia-smi`) | на хосте | **вы, вручную** — шаг 1 |
-| **Проброс видеокарты в контейнер** | на хосте | Linux — вручную (`nvidia-container-toolkit`); **Windows — сам Docker Desktop** |
-| **CUDA-toolkit** (компилятор `nvcc` для сборки движка) | внутри контейнера | **ставится сам** при первом старте |
-
-То есть **сам CUDA-toolkit устанавливать не нужно** — контейнер при
-первом старте сам поставит его внутри себя (`nvidia-cuda-toolkit`,
-CUDA 12.0 из репозитория Ubuntu, ~75 пакетов) и соберёт llama.cpp с
-`-DGGML_CUDA=ON`.
-
-Шаг 1 зависит от вашей системы — выберите **один** из двух вариантов
-ниже. Команды с `sudo`/`apt` относятся **только к Linux-серверу**: на
-Windows их выполнять не нужно и негде.
-
-#### Шаг 1А. Если хост — Linux-сервер
-
-Драйвер (проверить/поставить):
-
-```bash
-nvidia-smi                        # есть таблица с видеокартой — драйвер стоит
-sudo ubuntu-drivers autoinstall   # если нет: Ubuntu подберёт версию сама
-sudo reboot
-```
-
-Затем `nvidia-container-toolkit` — он пробрасывает видеокарту в
-контейнеры (команды из официальной инструкции NVIDIA):
-
-```bash
-# репозиторий и ключ NVIDIA
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-  && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-
-# установка
-sudo apt-get update
-sudo apt-get install -y nvidia-container-toolkit
-
-# привязка к Docker и перезапуск
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-#### Шаг 1Б. Если хост — Windows 10/11 с Docker Desktop
-
-1. **Драйвер NVIDIA для Windows** — свежий, с поддержкой WSL 2 GPU
-   Paravirtualization (обычный драйвер с сайта NVIDIA; ставится в
-   Windows, а не внутри WSL).
-2. **Свежее ядро WSL 2** — в обычной командной строке:
-
-   ```bat
-   wsl --update
+   ```yaml
+       # deploy:
+       #   resources:
+       #     reservations:
+       #       devices:
+       #         - driver: nvidia
+       #           count: all
+       #           capabilities: [gpu]
    ```
 
-3. **Бэкенд WSL 2 в Docker Desktop** — Settings → General → галочка
-   «Use the WSL 2 based engine» (включена по умолчанию).
+3. В начале каждой из этих семи строк удалите два символа — решётку и
+   пробел за ней (`# `). Должно получиться:
 
-#### Проверка, что Docker видит видеокарту (обе системы)
+   ```yaml
+       deploy:
+         resources:
+           reservations:
+             devices:
+               - driver: nvidia
+                 count: all
+                 capabilities: [gpu]
+   ```
 
-```bash
-docker run --rm --gpus all ubuntu:24.04 nvidia-smi
-```
+4. Сохраните файл и перезапустите контейнер:
+   `docker compose up -d --build`.
 
-Должна появиться таблица с вашей видеокартой. Если да — переходите к
-шагу 2.
-
-#### Шаг 2. Включите видеокарту в проекте
-
-Откройте **`docker-compose.yml`** в корне папки проекта любым текстовым
-редактором и найдите эти семь строк:
-
-```yaml
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-```
-
-В начале каждой из семи строк удалите два символа — решётку и пробел за
-ней (`# `). Должно получиться:
-
-```yaml
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-```
-
-Сохраните файл и перезапустите контейнер:
+При первом старте с видеокартой автоматически установится CUDA-вариант
+движка (сборка из исходников — займёт время). Проверка, что контейнер
+видит видеокарту:
 
 ```bash
-docker compose up -d --build
-docker compose logs -f
+docker compose exec tiff2pdf nvidia-smi
 ```
-
-#### Что произойдёт при первом старте с видеокартой
-
-Контейнер сам, без вашего участия:
-
-1. установит внутри себя `nvidia-cuda-toolkit` (~75 пакетов, несколько ГБ);
-2. скачает исходники llama.cpp и соберёт её с `-DGGML_CUDA=ON` под вашу
-   видеокарту (`CMAKE_CUDA_ARCHITECTURES=native`).
-
-Это разово и **занимает десятки минут** — результат сохраняется в томе
-`neural`, при следующих стартах берётся готовым. Веб-интерфейс при этом
-доступен сразу и показывает статус подготовки.
-
-Если CUDA-сборка почему-то не удастся, контейнер **не останется без
-движка**: он поставит готовую CPU-сборку и напишет в логах
-«CUDA-сборка не удалась… движок будет работать на процессоре».
-
-#### Проверка
-
-```bash
-docker compose exec tiff2pdf nvidia-smi   # контейнер видит видеокарту?
-docker compose logs | grep neural         # что именно установилось
-```
-
-В логах при успешной GPU-сборке будет «Сборка из исходников с CUDA» и
-затем «Сборка завершена (cuda)».
-
-#### Если что-то пошло не так
-
-- **В логах «Видеокарта NVIDIA не обнаружена», хотя она есть** — блок
-  `deploy` не раскомментирован (шаг 2); на Linux — ещё не установлен
-  `nvidia-container-toolkit`, на Windows — старый драйвер или не
-  обновлено ядро WSL 2 (`wsl --update`), см. шаг 1.
-- **Собралась CPU-сборка вместо CUDA** — смотрите логи. Частые причины:
-  недоступен `github.com` (исходники тянутся оттуда; в сети без VPN
-  сборка невозможна) либо очень новая видеокарта: Ubuntu 24.04 даёт
-  CUDA **12.0**, а картам поколения RTX 50xx (Blackwell) нужна CUDA 12.8+
-  — тогда `nvcc` не знает их архитектуру. В этом случае нужен более
-  свежий CUDA-toolkit в образе (замена базового образа на
-  `nvidia/cuda:12.8-devel-ubuntu24.04` в `Dockerfile`) — напишите, если
-  столкнётесь.
 
 ## Управление контейнером
 
